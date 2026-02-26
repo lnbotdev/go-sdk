@@ -44,9 +44,9 @@ func (s *InvoicesService) Get(ctx context.Context, number int) (*Invoice, error)
 	return &v, nil
 }
 
-// WaitForSettlement opens an SSE stream and sends events to the returned channel.
+// Watch opens an SSE stream and sends events to the returned channel.
 // The channel is closed when the stream ends. Cancel the context to abort.
-func (s *InvoicesService) WaitForSettlement(ctx context.Context, number int, timeout *int) (<-chan InvoiceEvent, <-chan error) {
+func (s *InvoicesService) Watch(ctx context.Context, number int, timeout *int) (<-chan InvoiceEvent, <-chan error) {
 	events := make(chan InvoiceEvent, 1)
 	errs := make(chan error, 1)
 

@@ -8,7 +8,7 @@
 Give your AI agents, apps, and services access to Bitcoin over the Lightning Network. Create wallets, send and receive sats, and get real-time payment notifications.
 
 ```go
-client := lnbot.New("lnbot_...")
+client := lnbot.New("key_...")
 
 invoice, _ := client.Invoices.Create(ctx, &lnbot.CreateInvoiceParams{
     Amount: 1000,
@@ -16,7 +16,7 @@ invoice, _ := client.Invoices.Create(ctx, &lnbot.CreateInvoiceParams{
 })
 ```
 
-> LnBot also ships a **[TypeScript SDK](https://www.npmjs.com/package/@lnbot/sdk)**, **[Python SDK](https://pypi.org/project/lnbot/)**, **[CLI](https://ln.bot/docs)**, and **[MCP server](https://ln.bot/docs)**.
+> LnBot also ships a **[TypeScript SDK](https://www.npmjs.com/package/@lnbot/sdk)**, **[Python SDK](https://pypi.org/project/lnbot/)**, **[Rust SDK](https://crates.io/crates/lnbot)**, **[CLI](https://ln.bot/docs)**, and **[MCP server](https://ln.bot/docs)**.
 
 ---
 
@@ -66,7 +66,7 @@ fmt.Println(invoice.Bolt11)
 ### Wait for payment (SSE)
 
 ```go
-events, errs := client.Invoices.WaitForSettlement(ctx, invoice.Number, nil)
+events, errs := client.Invoices.Watch(ctx, invoice.Number, nil)
 for event := range events {
     if event.Event == "settled" {
         fmt.Println("Paid!")
@@ -129,7 +129,7 @@ if err != nil {
 ## Configuration
 
 ```go
-client := lnbot.New("lnbot_...",
+client := lnbot.New("key_...",
     lnbot.WithBaseURL("https://api.ln.bot"),
     lnbot.WithHTTPClient(customHTTPClient),
 )
@@ -143,7 +143,7 @@ client := lnbot.New("lnbot_...",
 - **Context-first** — every method takes `context.Context` as the first argument
 - **Typed errors** — `BadRequestError`, `NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`
 - **Generic helpers** — `Ptr[T]` for optional fields
-- **SSE support** — `WaitForSettlement` returns channels for real-time events
+- **SSE support** — `Watch` returns channels for real-time events
 
 ## Requirements
 
@@ -156,6 +156,12 @@ client := lnbot.New("lnbot_...",
 - [Documentation](https://ln.bot/docs)
 - [GitHub](https://github.com/lnbotdev)
 - [pkg.go.dev](https://pkg.go.dev/github.com/lnbotdev/go-sdk)
+
+## Other SDKs
+
+- [TypeScript SDK](https://github.com/lnbotdev/typescript-sdk) · [npm](https://www.npmjs.com/package/@lnbot/sdk)
+- [Python SDK](https://github.com/lnbotdev/python-sdk) · [pypi](https://pypi.org/project/lnbot/)
+- [Rust SDK](https://github.com/lnbotdev/rust-sdk) · [crates.io](https://crates.io/crates/lnbot) · [docs.rs](https://docs.rs/lnbot)
 
 ## License
 
