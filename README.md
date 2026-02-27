@@ -95,6 +95,27 @@ fmt.Printf("%d sats available\n", wallet.Available)
 
 ---
 
+## L402 paywalls
+
+```go
+// Create a challenge (server side)
+challenge, _ := client.L402.CreateChallenge(ctx, &lnbot.CreateL402ChallengeParams{
+    Amount:      100,
+    Description: lnbot.Ptr("API access"),
+})
+
+// Pay the challenge (client side)
+result, _ := client.L402.Pay(ctx, &lnbot.PayL402Params{
+    WwwAuthenticate: challenge.WwwAuthenticate,
+})
+
+// Verify a token (server side, stateless)
+v, _ := client.L402.Verify(ctx, &lnbot.VerifyL402Params{
+    Authorization: *result.Authorization,
+})
+fmt.Println(v.Valid)
+```
+
 ## Error handling
 
 ```go

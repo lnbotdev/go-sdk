@@ -18,7 +18,7 @@ const (
 	defaultTimeout = 30 * time.Second
 
 	// Version is the SDK version sent in the User-Agent header.
-	Version = "0.4.0"
+	Version = "0.5.0"
 )
 
 // Option configures the Client.
@@ -50,6 +50,7 @@ type Client struct {
 	Events       *EventsService
 	Backup       *BackupService
 	Restore      *RestoreService
+	L402         *L402Service
 }
 
 // New creates a new LnBot client.
@@ -73,6 +74,7 @@ func New(apiKey string, opts ...Option) *Client {
 	c.Events = &EventsService{c: c}
 	c.Backup = &BackupService{c: c}
 	c.Restore = &RestoreService{c: c}
+	c.L402 = &L402Service{c: c}
 	return c
 }
 

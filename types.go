@@ -46,15 +46,6 @@ type UpdateWalletParams struct {
 // API Keys
 // ---------------------------------------------------------------------------
 
-// APIKey represents an API key's metadata.
-type APIKey struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Hint       string     `json:"hint"`
-	CreatedAt  *time.Time `json:"createdAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt"`
-}
-
 // RotatedAPIKey is returned after rotating an API key.
 type RotatedAPIKey struct {
 	Key  string `json:"key"`
@@ -297,4 +288,58 @@ type PasskeyAuthenticationChallenge struct {
 type PasskeyAssertionParams struct {
 	SessionID string         `json:"sessionId"`
 	Assertion map[string]any `json:"assertion"`
+}
+
+// ---------------------------------------------------------------------------
+// L402
+// ---------------------------------------------------------------------------
+
+// CreateL402ChallengeParams are the parameters for creating an L402 challenge.
+type CreateL402ChallengeParams struct {
+	Amount        int64    `json:"amount"`
+	Description   *string  `json:"description,omitempty"`
+	ExpirySeconds *int     `json:"expirySeconds,omitempty"`
+	Caveats       []string `json:"caveats,omitempty"`
+}
+
+// L402Challenge is returned when an L402 challenge is created.
+type L402Challenge struct {
+	Macaroon        string    `json:"macaroon"`
+	Invoice         string    `json:"invoice"`
+	PaymentHash     string    `json:"paymentHash"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	WwwAuthenticate string    `json:"wwwAuthenticate"`
+}
+
+// VerifyL402Params are the parameters for verifying an L402 token.
+type VerifyL402Params struct {
+	Authorization string `json:"authorization"`
+}
+
+// VerifyL402Response is returned when verifying an L402 token.
+type VerifyL402Response struct {
+	Valid       bool     `json:"valid"`
+	PaymentHash *string  `json:"paymentHash"`
+	Caveats     []string `json:"caveats"`
+	Error       *string  `json:"error"`
+}
+
+// PayL402Params are the parameters for paying an L402 challenge.
+type PayL402Params struct {
+	WwwAuthenticate string  `json:"wwwAuthenticate"`
+	MaxFee          *int64  `json:"maxFee,omitempty"`
+	Reference       *string `json:"reference,omitempty"`
+	Wait            *bool   `json:"wait,omitempty"`
+	Timeout         *int    `json:"timeout,omitempty"`
+}
+
+// L402PayResponse is returned after paying an L402 challenge.
+type L402PayResponse struct {
+	Authorization *string `json:"authorization"`
+	PaymentHash   string  `json:"paymentHash"`
+	Preimage      *string `json:"preimage"`
+	Amount        int64   `json:"amount"`
+	Fee           *int64  `json:"fee"`
+	PaymentNumber int     `json:"paymentNumber"`
+	Status        string  `json:"status"`
 }
