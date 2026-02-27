@@ -44,6 +44,26 @@ func (s *InvoicesService) Get(ctx context.Context, number int) (*Invoice, error)
 	return &v, nil
 }
 
+// CreateForWallet creates an invoice for a specific wallet by its ID (wal_xxx).
+// No authentication required. Rate limited by IP.
+func (s *InvoicesService) CreateForWallet(ctx context.Context, params *CreateInvoiceForWalletParams) (*AddressInvoice, error) {
+	var v AddressInvoice
+	if err := s.c.post(ctx, "/v1/invoices/for-wallet", params, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// CreateForAddress creates an invoice for the wallet owning the given Lightning address.
+// No authentication required. Rate limited by IP.
+func (s *InvoicesService) CreateForAddress(ctx context.Context, params *CreateInvoiceForAddressParams) (*AddressInvoice, error) {
+	var v AddressInvoice
+	if err := s.c.post(ctx, "/v1/invoices/for-address", params, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
 // Watch opens an SSE stream and sends events to the returned channel.
 // The channel is closed when the stream ends. Cancel the context to abort.
 func (s *InvoicesService) Watch(ctx context.Context, number int, timeout *int) (<-chan InvoiceEvent, <-chan error) {

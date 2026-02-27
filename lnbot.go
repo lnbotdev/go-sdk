@@ -18,7 +18,7 @@ const (
 	defaultTimeout = 30 * time.Second
 
 	// Version is the SDK version sent in the User-Agent header.
-	Version = "0.1.0"
+	Version = "0.3.0"
 )
 
 // Option configures the Client.

@@ -95,11 +95,37 @@ type InvoiceEvent struct {
 	Data  Invoice
 }
 
+// CreateInvoiceForWalletParams are the parameters for creating an invoice for a specific wallet.
+// No authentication required. Rate limited by IP.
+type CreateInvoiceForWalletParams struct {
+	WalletID  string  `json:"walletId"`
+	Amount    int64   `json:"amount"`
+	Reference *string `json:"reference,omitempty"`
+	Comment   *string `json:"comment,omitempty"`
+}
+
+// CreateInvoiceForAddressParams are the parameters for creating an invoice for a Lightning address.
+// No authentication required. Rate limited by IP.
+type CreateInvoiceForAddressParams struct {
+	Address string  `json:"address"`
+	Amount  int64   `json:"amount"`
+	Tag     *string `json:"tag,omitempty"`
+	Comment *string `json:"comment,omitempty"`
+}
+
+// AddressInvoice is an invoice created via wallet ID or Lightning address.
+type AddressInvoice struct {
+	Bolt11    string     `json:"bolt11"`
+	Amount    int64      `json:"amount"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+}
+
 // ---------------------------------------------------------------------------
 // Payments
 // ---------------------------------------------------------------------------
 
 // CreatePaymentParams are the parameters for creating a new payment.
+// Target accepts a Lightning address (user@domain), LNURL, or BOLT11 invoice.
 type CreatePaymentParams struct {
 	Target         string  `json:"target"`
 	Amount         *int64  `json:"amount,omitempty"`
@@ -127,6 +153,12 @@ type Payment struct {
 type ListPaymentsParams struct {
 	Limit *int
 	After *int
+}
+
+// PaymentEvent represents a server-sent event for a payment.
+type PaymentEvent struct {
+	Event string
+	Data  Payment
 }
 
 // ---------------------------------------------------------------------------
