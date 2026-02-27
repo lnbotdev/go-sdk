@@ -17,7 +17,7 @@ func (s *KeysService) List(ctx context.Context) ([]APIKey, error) {
 	return v, nil
 }
 
-// Rotate rotates the API key at the given slot (1 = primary, 2 = secondary).
+// Rotate rotates the API key at the given slot (0 = primary, 1 = secondary).
 func (s *KeysService) Rotate(ctx context.Context, slot int) (*RotatedAPIKey, error) {
 	var v RotatedAPIKey
 	if err := s.c.post(ctx, fmt.Sprintf("/v1/keys/%d/rotate", slot), nil, &v); err != nil {
