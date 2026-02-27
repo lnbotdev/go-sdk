@@ -1,6 +1,9 @@
 package lnbot
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Ptr returns a pointer to v. Useful for optional fields in request params.
 func Ptr[T any](v T) *T { return &v }
@@ -77,6 +80,7 @@ type Invoice struct {
 	Bolt11    string     `json:"bolt11"`
 	Reference *string    `json:"reference"`
 	Memo      *string    `json:"memo"`
+	Preimage  *string    `json:"preimage"`
 	TxNumber  *int       `json:"txNumber"`
 	CreatedAt *time.Time `json:"createdAt"`
 	SettledAt *time.Time `json:"settledAt"`
@@ -140,9 +144,11 @@ type Payment struct {
 	Status        string     `json:"status"`
 	Amount        int64      `json:"amount"`
 	MaxFee        int64      `json:"maxFee"`
+	ServiceFee    int64      `json:"serviceFee"`
 	ActualFee     *int64     `json:"actualFee"`
 	Address       string     `json:"address"`
 	Reference     *string    `json:"reference"`
+	Preimage      *string    `json:"preimage"`
 	TxNumber      *int       `json:"txNumber"`
 	FailureReason *string    `json:"failureReason"`
 	CreatedAt     *time.Time `json:"createdAt"`
@@ -159,6 +165,13 @@ type ListPaymentsParams struct {
 type PaymentEvent struct {
 	Event string
 	Data  Payment
+}
+
+// WalletEvent represents a real-time event from the wallet event stream.
+type WalletEvent struct {
+	Event     string          `json:"event"`
+	CreatedAt string          `json:"createdAt"`
+	Data      json.RawMessage `json:"data"`
 }
 
 // ---------------------------------------------------------------------------

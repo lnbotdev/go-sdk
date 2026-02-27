@@ -18,7 +18,7 @@ const (
 	defaultTimeout = 30 * time.Second
 
 	// Version is the SDK version sent in the User-Agent header.
-	Version = "0.3.0"
+	Version = "0.4.0"
 )
 
 // Option configures the Client.
@@ -47,6 +47,7 @@ type Client struct {
 	Addresses    *AddressesService
 	Transactions *TransactionsService
 	Webhooks     *WebhooksService
+	Events       *EventsService
 	Backup       *BackupService
 	Restore      *RestoreService
 }
@@ -69,6 +70,7 @@ func New(apiKey string, opts ...Option) *Client {
 	c.Addresses = &AddressesService{c: c}
 	c.Transactions = &TransactionsService{c: c}
 	c.Webhooks = &WebhooksService{c: c}
+	c.Events = &EventsService{c: c}
 	c.Backup = &BackupService{c: c}
 	c.Restore = &RestoreService{c: c}
 	return c
