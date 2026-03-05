@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -26,7 +25,7 @@ func sseServer(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return New("key_test", WithBaseURL(srv.URL))
+	return New("wk_test", WithBaseURL(srv.URL))
 }
 
 // collectInvoiceEvents drains the events channel into a slice.
@@ -73,7 +72,7 @@ func TestInvoiceWatch_YieldsEvents(t *testing.T) {
 	sse := "event: settled\ndata: {\"number\":1,\"status\":\"settled\",\"amount\":100,\"bolt11\":\"lnbc1...\"}\n\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectInvoiceEvents(c.Invoices.Watch(context.Background(), 1, nil))
+	evs, err := collectInvoiceEvents(c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +95,7 @@ func TestInvoiceWatch_MultipleEvents(t *testing.T) {
 		"event: settled\ndata: {\"number\":1,\"status\":\"settled\",\"amount\":50,\"bolt11\":\"lnbc1...\"}\n\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectInvoiceEvents(c.Invoices.Watch(context.Background(), 1, nil))
+	evs, err := collectInvoiceEvents(c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +115,7 @@ func TestInvoiceWatch_SkipsCommentLines(t *testing.T) {
 		"event: settled\ndata: {\"number\":1,\"status\":\"settled\",\"amount\":100,\"bolt11\":\"lnbc1...\"}\n\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectInvoiceEvents(c.Invoices.Watch(context.Background(), 1, nil))
+	evs, err := collectInvoiceEvents(c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +127,7 @@ func TestInvoiceWatch_SkipsCommentLines(t *testing.T) {
 func TestInvoiceWatch_EmptyStream(t *testing.T) {
 	c := sseServer(t, sseHandler(t, ""))
 
-	evs, err := collectInvoiceEvents(c.Invoices.Watch(context.Background(), 1, nil))
+	evs, err := collectInvoiceEvents(c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,14 +145,14 @@ func TestInvoiceWatch_BuildsCorrectPath(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.Watch(context.Background(), 42, Ptr(120))
+	evs, errs := c.Wallet("wal_1").Invoices.Watch(context.Background(), 42, Ptr(120))
 	for range evs {
 	}
 	<-errs
 
-	if gotPath != "/v1/invoices/42/events" {
+	if gotPath != "/v1/wallets/wal_1/invoices/42/events" {
 		t.Errorf("Path = %q", gotPath)
 	}
 	if gotQuery != "timeout=120" {
@@ -169,9 +168,9 @@ func TestInvoiceWatch_OmitsTimeoutWhenNil(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.Watch(context.Background(), 1, nil)
+	evs, errs := c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil)
 	for range evs {
 	}
 	<-errs
@@ -190,9 +189,9 @@ func TestInvoiceWatch_SendsSseHeaders(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.Watch(context.Background(), 1, nil)
+	evs, errs := c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil)
 	for range evs {
 	}
 	<-errs
@@ -200,7 +199,7 @@ func TestInvoiceWatch_SendsSseHeaders(t *testing.T) {
 	if gotAccept != "text/event-stream" {
 		t.Errorf("Accept = %q", gotAccept)
 	}
-	if gotAuth != "Bearer key_test" {
+	if gotAuth != "Bearer wk_test" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
 }
@@ -212,9 +211,9 @@ func TestInvoiceWatch_HTTPError(t *testing.T) {
 		w.Write([]byte(`{"message":"unauthorized"}`))
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.Watch(context.Background(), 1, nil)
+	evs, errs := c.Wallet("wal_1").Invoices.Watch(context.Background(), 1, nil)
 	for range evs {
 	}
 
@@ -237,14 +236,14 @@ func TestInvoiceWatchByHash_BuildsCorrectPath(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.WatchByHash(context.Background(), "abc123", nil)
+	evs, errs := c.Wallet("wal_1").Invoices.WatchByHash(context.Background(), "abc123", nil)
 	for range evs {
 	}
 	<-errs
 
-	if gotPath != "/v1/invoices/abc123/events" {
+	if gotPath != "/v1/wallets/wal_1/invoices/abc123/events" {
 		t.Errorf("Path = %q", gotPath)
 	}
 }
@@ -257,9 +256,9 @@ func TestInvoiceWatchByHash_WithTimeout(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Invoices.WatchByHash(context.Background(), "abc123", Ptr(60))
+	evs, errs := c.Wallet("wal_1").Invoices.WatchByHash(context.Background(), "abc123", Ptr(60))
 	for range evs {
 	}
 	<-errs
@@ -277,7 +276,7 @@ func TestPaymentWatch_YieldsEvents(t *testing.T) {
 	sse := "event: settled\ndata: {\"number\":1,\"status\":\"settled\",\"amount\":50,\"maxFee\":10,\"serviceFee\":0,\"address\":\"user@ln.bot\"}\n\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectPaymentEvents(c.Payments.Watch(context.Background(), 1, nil))
+	evs, err := collectPaymentEvents(c.Wallet("wal_1").Payments.Watch(context.Background(), 1, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,14 +300,14 @@ func TestPaymentWatch_BuildsCorrectPath(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Payments.Watch(context.Background(), 7, Ptr(60))
+	evs, errs := c.Wallet("wal_1").Payments.Watch(context.Background(), 7, Ptr(60))
 	for range evs {
 	}
 	<-errs
 
-	if gotPath != "/v1/payments/7/events" {
+	if gotPath != "/v1/wallets/wal_1/payments/7/events" {
 		t.Errorf("Path = %q", gotPath)
 	}
 	if gotQuery != "timeout=60" {
@@ -328,14 +327,14 @@ func TestPaymentWatchByHash_BuildsCorrectPath(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Payments.WatchByHash(context.Background(), "hash123", nil)
+	evs, errs := c.Wallet("wal_1").Payments.WatchByHash(context.Background(), "hash123", nil)
 	for range evs {
 	}
 	<-errs
 
-	if gotPath != "/v1/payments/hash123/events" {
+	if gotPath != "/v1/wallets/wal_1/payments/hash123/events" {
 		t.Errorf("Path = %q", gotPath)
 	}
 }
@@ -348,7 +347,7 @@ func TestEventsStream_YieldsEvents(t *testing.T) {
 	sse := "data: {\"event\":\"invoice.settled\",\"createdAt\":\"2024-01-01T00:00:00Z\",\"data\":{\"number\":1}}\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectWalletEvents(c.Events.Stream(context.Background()))
+	evs, err := collectWalletEvents(c.Wallet("wal_1").Events.Stream(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +370,7 @@ func TestEventsStream_MultipleEvents(t *testing.T) {
 		"data: {\"event\":\"payment.settled\",\"createdAt\":\"2024-01-01T00:00:00Z\",\"data\":{\"number\":2}}\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectWalletEvents(c.Events.Stream(context.Background()))
+	evs, err := collectWalletEvents(c.Wallet("wal_1").Events.Stream(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +391,7 @@ func TestEventsStream_SkipsNonDataLines(t *testing.T) {
 		"data: {\"event\":\"payment.settled\",\"createdAt\":\"2024-01-01T00:00:00Z\",\"data\":{\"number\":1}}\n"
 	c := sseServer(t, sseHandler(t, sse))
 
-	evs, err := collectWalletEvents(c.Events.Stream(context.Background()))
+	evs, err := collectWalletEvents(c.Wallet("wal_1").Events.Stream(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,14 +411,14 @@ func TestEventsStream_BuildsCorrectPath(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Events.Stream(context.Background())
+	evs, errs := c.Wallet("wal_1").Events.Stream(context.Background())
 	for range evs {
 	}
 	<-errs
 
-	if !strings.HasSuffix(gotPath, "/v1/events") {
+	if gotPath != "/v1/wallets/wal_1/events" {
 		t.Errorf("Path = %q", gotPath)
 	}
 }
@@ -427,7 +426,7 @@ func TestEventsStream_BuildsCorrectPath(t *testing.T) {
 func TestEventsStream_EmptyStream(t *testing.T) {
 	c := sseServer(t, sseHandler(t, ""))
 
-	evs, err := collectWalletEvents(c.Events.Stream(context.Background()))
+	evs, err := collectWalletEvents(c.Wallet("wal_1").Events.Stream(context.Background()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,9 +443,9 @@ func TestEventsStream_SendsSseHeaders(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Events.Stream(context.Background())
+	evs, errs := c.Wallet("wal_1").Events.Stream(context.Background())
 	for range evs {
 	}
 	<-errs
@@ -463,9 +462,9 @@ func TestEventsStream_HTTPError(t *testing.T) {
 		w.Write([]byte(`{"message":"forbidden"}`))
 	}))
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("wk_test", WithBaseURL(srv.URL))
 
-	evs, errs := c.Events.Stream(context.Background())
+	evs, errs := c.Wallet("wal_1").Events.Stream(context.Background())
 	for range evs {
 	}
 

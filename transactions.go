@@ -2,12 +2,15 @@ package lnbot
 
 import "context"
 
-// TransactionsService handles wallet transaction operations.
-type TransactionsService struct{ c *Client }
+// TransactionsService handles wallet-scoped transaction operations.
+type TransactionsService struct {
+	c      *Client
+	prefix string
+}
 
-// List returns transactions for the current wallet.
+// List returns transactions for the wallet.
 func (s *TransactionsService) List(ctx context.Context, params *ListTransactionsParams) ([]Transaction, error) {
-	path := "/v1/transactions"
+	path := s.prefix + "/transactions"
 	if params != nil {
 		path = addListParams(path, params.Limit, params.After)
 	}

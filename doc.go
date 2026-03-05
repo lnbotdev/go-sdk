@@ -6,8 +6,9 @@
 // Zero dependencies beyond the standard library. Every method takes a
 // context.Context as its first argument.
 //
-//	client := lnbot.New("key_...")
-//	invoice, _ := client.Invoices.Create(ctx, &lnbot.CreateInvoiceParams{
+//	client := lnbot.New("uk_...")
+//	w := client.Wallet("wal_...")
+//	invoice, _ := w.Invoices.Create(ctx, &lnbot.CreateInvoiceParams{
 //	    Amount: 1000,
 //	    Memo:   lnbot.Ptr("Coffee"),
 //	})

@@ -15,7 +15,7 @@ func testServer(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Serv
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	c := New("key_test", WithBaseURL(srv.URL))
+	c := New("uk_test", WithBaseURL(srv.URL))
 	return c, srv
 }
 
@@ -33,7 +33,9 @@ func jsonHandler(status int, body any) (http.HandlerFunc, *capturedRequest) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		json.NewEncoder(w).Encode(body)
+		if body != nil {
+			json.NewEncoder(w).Encode(body)
+		}
 	}, cap
 }
 
@@ -46,45 +48,100 @@ type capturedRequest struct {
 }
 
 func TestNew_DefaultBaseURL(t *testing.T) {
-	c := New("key_test")
+	c := New("uk_test")
 	if c.baseURL != defaultBaseURL {
 		t.Errorf("got %q, want %q", c.baseURL, defaultBaseURL)
 	}
 }
 
 func TestNew_CustomBaseURL(t *testing.T) {
-	c := New("key_test", WithBaseURL("https://custom.api.com/"))
+	c := New("uk_test", WithBaseURL("https://custom.api.com/"))
 	if c.baseURL != "https://custom.api.com" {
 		t.Errorf("got %q, want trailing slash trimmed", c.baseURL)
 	}
 }
 
-func TestNew_InitializesAllServices(t *testing.T) {
-	c := New("key_test")
+func TestNew_InitializesTopLevelServices(t *testing.T) {
+	c := New("uk_test")
 	if c.Wallets == nil || c.Keys == nil || c.Invoices == nil ||
-		c.Payments == nil || c.Addresses == nil || c.Transactions == nil ||
-		c.Webhooks == nil || c.Events == nil || c.Backup == nil ||
-		c.Restore == nil || c.L402 == nil {
-		t.Error("expected all services to be initialized")
+		c.Backup == nil || c.Restore == nil {
+		t.Error("expected all top-level services to be initialized")
 	}
 }
 
 func TestNew_CustomHTTPClient(t *testing.T) {
 	custom := &http.Client{}
-	c := New("key_test", WithHTTPClient(custom))
+	c := New("uk_test", WithHTTPClient(custom))
 	if c.http != custom {
 		t.Error("expected custom HTTP client to be used")
 	}
 }
 
-func TestRequest_SendsAuthorizationHeader(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1", "name": "n", "balance": 0, "onHold": 0, "available": 0})
+func TestWalletHandle_InitializesAllServices(t *testing.T) {
+	c := New("uk_test")
+	w := c.Wallet("wal_1")
+	if w.Key == nil || w.Invoices == nil || w.Payments == nil ||
+		w.Addresses == nil || w.Transactions == nil || w.Webhooks == nil ||
+		w.Events == nil || w.L402 == nil {
+		t.Error("expected all wallet services to be initialized")
+	}
+	if w.WalletID != "wal_1" {
+		t.Errorf("WalletID = %q, want wal_1", w.WalletID)
+	}
+}
+
+func TestRegister(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{
+		"userId": "usr_1", "primaryKey": "uk_pk", "secondaryKey": "uk_sk",
+		"recoveryPassphrase": "word1 word2 word3",
+	})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Wallets.Current(context.Background())
+	res, err := c.Register(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "POST" {
+		t.Errorf("Method = %q, want POST", cap.Method)
+	}
+	if cap.Path != "/v1/register" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if res.PrimaryKey != "uk_pk" {
+		t.Errorf("PrimaryKey = %q", res.PrimaryKey)
+	}
+	if res.RecoveryPassphrase != "word1 word2 word3" {
+		t.Errorf("RecoveryPassphrase = %q", res.RecoveryPassphrase)
+	}
+}
 
-	if got := cap.Headers.Get("Authorization"); got != "Bearer key_test" {
-		t.Errorf("Authorization = %q, want %q", got, "Bearer key_test")
+func TestMe(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1"})
+	c, _ := testServer(t, h)
+
+	res, err := c.Me(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "GET" {
+		t.Errorf("Method = %q, want GET", cap.Method)
+	}
+	if cap.Path != "/v1/me" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if res.WalletID != "wal_1" {
+		t.Errorf("WalletID = %q", res.WalletID)
+	}
+}
+
+func TestRequest_SendsAuthorizationHeader(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1"})
+	c, _ := testServer(t, h)
+
+	_, _ = c.Me(context.Background())
+
+	if got := cap.Headers.Get("Authorization"); got != "Bearer uk_test" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer uk_test")
 	}
 }
 
@@ -94,7 +151,7 @@ func TestRequest_OmitsAuthWhenNoAPIKey(t *testing.T) {
 	t.Cleanup(srv.Close)
 	c := New("", WithBaseURL(srv.URL))
 
-	_, _ = c.Wallets.Current(context.Background())
+	_, _ = c.Me(context.Background())
 
 	if got := cap.Headers.Get("Authorization"); got != "" {
 		t.Errorf("Authorization = %q, want empty", got)
@@ -102,10 +159,10 @@ func TestRequest_OmitsAuthWhenNoAPIKey(t *testing.T) {
 }
 
 func TestRequest_SendsUserAgent(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1", "name": "n", "balance": 0, "onHold": 0, "available": 0})
+	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1"})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Wallets.Current(context.Background())
+	_, _ = c.Me(context.Background())
 
 	if got := cap.Headers.Get("User-Agent"); got != "lnbot-go/"+Version {
 		t.Errorf("User-Agent = %q, want %q", got, "lnbot-go/"+Version)
@@ -113,10 +170,10 @@ func TestRequest_SendsUserAgent(t *testing.T) {
 }
 
 func TestRequest_SendsAcceptJSON(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1", "name": "n", "balance": 0, "onHold": 0, "available": 0})
+	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1"})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Wallets.Current(context.Background())
+	_, _ = c.Me(context.Background())
 
 	if got := cap.Headers.Get("Accept"); got != "application/json" {
 		t.Errorf("Accept = %q, want application/json", got)
@@ -127,7 +184,8 @@ func TestRequest_SendsContentTypeForPost(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{"number": 1, "status": "pending", "amount": 100, "bolt11": "lnbc1..."})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100})
+	w := c.Wallet("wal_1")
+	_, _ = w.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100})
 
 	if got := cap.Headers.Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", got)
@@ -135,10 +193,10 @@ func TestRequest_SendsContentTypeForPost(t *testing.T) {
 }
 
 func TestRequest_OmitsContentTypeForGet(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1", "name": "n", "balance": 0, "onHold": 0, "available": 0})
+	h, cap := jsonHandler(200, map[string]any{"walletId": "wal_1"})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Wallets.Current(context.Background())
+	_, _ = c.Me(context.Background())
 
 	if got := cap.Headers.Get("Content-Type"); got != "" {
 		t.Errorf("Content-Type = %q, want empty", got)
@@ -150,7 +208,8 @@ func TestRequest_SerializesBodyAsJSON(t *testing.T) {
 	c, _ := testServer(t, h)
 
 	memo := "test memo"
-	_, _ = c.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100, Memo: &memo})
+	w := c.Wallet("wal_1")
+	_, _ = w.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100, Memo: &memo})
 
 	var body map[string]any
 	json.Unmarshal([]byte(cap.Body), &body)
@@ -166,7 +225,8 @@ func TestRequest_OmitsNilOptionalFields(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{"number": 1, "status": "pending", "amount": 100, "bolt11": "lnbc1..."})
 	c, _ := testServer(t, h)
 
-	_, _ = c.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100})
+	w := c.Wallet("wal_1")
+	_, _ = w.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100})
 
 	var body map[string]any
 	json.Unmarshal([]byte(cap.Body), &body)
@@ -182,28 +242,37 @@ func TestResponse_ParsesJSON(t *testing.T) {
 	h, _ := jsonHandler(200, map[string]any{"walletId": "wal_123", "name": "My Wallet", "balance": 1000, "onHold": 50, "available": 950})
 	c, _ := testServer(t, h)
 
-	w, err := c.Wallets.Current(context.Background())
+	w := c.Wallet("wal_123")
+	wal, err := w.Get(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.WalletID != "wal_123" {
-		t.Errorf("WalletID = %q, want wal_123", w.WalletID)
+	if wal.WalletID != "wal_123" {
+		t.Errorf("WalletID = %q, want wal_123", wal.WalletID)
 	}
-	if w.Balance != 1000 {
-		t.Errorf("Balance = %d, want 1000", w.Balance)
+	if wal.Balance != 1000 {
+		t.Errorf("Balance = %d, want 1000", wal.Balance)
 	}
 }
 
 func TestHTTPMethods(t *testing.T) {
 	tests := []struct {
-		name   string
-		call   func(*Client) error
-		want   string
+		name string
+		call func(*Client) error
+		want string
 	}{
-		{"GET", func(c *Client) error { _, err := c.Wallets.Current(context.Background()); return err }, "GET"},
-		{"POST", func(c *Client) error { _, err := c.Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100}); return err }, "POST"},
-		{"PATCH", func(c *Client) error { _, err := c.Wallets.Update(context.Background(), &UpdateWalletParams{Name: "n"}); return err }, "PATCH"},
-		{"DELETE", func(c *Client) error { return c.Webhooks.Delete(context.Background(), "wh_1") }, "DELETE"},
+		{"GET", func(c *Client) error { _, err := c.Wallet("wal_1").Get(context.Background()); return err }, "GET"},
+		{"POST", func(c *Client) error {
+			_, err := c.Wallet("wal_1").Invoices.Create(context.Background(), &CreateInvoiceParams{Amount: 100})
+			return err
+		}, "POST"},
+		{"PATCH", func(c *Client) error {
+			_, err := c.Wallet("wal_1").Update(context.Background(), &UpdateWalletParams{Name: "n"})
+			return err
+		}, "PATCH"},
+		{"DELETE", func(c *Client) error {
+			return c.Wallet("wal_1").Webhooks.Delete(context.Background(), "wh_1")
+		}, "DELETE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,7 +305,7 @@ func TestErrorMapping(t *testing.T) {
 			h, _ := jsonHandler(tt.status, map[string]string{"message": "test error"})
 			c, _ := testServer(t, h)
 
-			_, err := c.Wallets.Current(context.Background())
+			_, err := c.Me(context.Background())
 
 			if err == nil {
 				t.Fatal("expected error")
@@ -253,7 +322,7 @@ func TestErrorMessageExtraction(t *testing.T) {
 		h, _ := jsonHandler(400, map[string]string{"message": "invalid amount"})
 		c, _ := testServer(t, h)
 
-		_, err := c.Wallets.Current(context.Background())
+		_, err := c.Me(context.Background())
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.Message != "invalid amount" {
@@ -266,7 +335,7 @@ func TestErrorMessageExtraction(t *testing.T) {
 		h, _ := jsonHandler(400, map[string]string{"error": "bad input"})
 		c, _ := testServer(t, h)
 
-		_, err := c.Wallets.Current(context.Background())
+		_, err := c.Me(context.Background())
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.Message != "bad input" {
@@ -281,9 +350,9 @@ func TestErrorMessageExtraction(t *testing.T) {
 			w.Write([]byte("not json"))
 		}))
 		t.Cleanup(srv.Close)
-		c := New("key_test", WithBaseURL(srv.URL))
+		c := New("uk_test", WithBaseURL(srv.URL))
 
-		_, err := c.Wallets.Current(context.Background())
+		_, err := c.Me(context.Background())
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.Message != "Internal Server Error" {
@@ -295,25 +364,25 @@ func TestErrorMessageExtraction(t *testing.T) {
 
 func TestAddListParams(t *testing.T) {
 	t.Run("no params", func(t *testing.T) {
-		got := addListParams("/v1/invoices", nil, nil)
-		if got != "/v1/invoices" {
-			t.Errorf("got %q, want /v1/invoices", got)
+		got := addListParams("/v1/wallets/wal_1/invoices", nil, nil)
+		if got != "/v1/wallets/wal_1/invoices" {
+			t.Errorf("got %q", got)
 		}
 	})
 
 	t.Run("limit only", func(t *testing.T) {
 		limit := 10
-		got := addListParams("/v1/invoices", &limit, nil)
-		if got != "/v1/invoices?limit=10" {
+		got := addListParams("/v1/wallets/wal_1/invoices", &limit, nil)
+		if got != "/v1/wallets/wal_1/invoices?limit=10" {
 			t.Errorf("got %q", got)
 		}
 	})
 
 	t.Run("both params", func(t *testing.T) {
 		limit, after := 10, 5
-		got := addListParams("/v1/invoices", &limit, &after)
+		got := addListParams("/v1/wallets/wal_1/invoices", &limit, &after)
 		// url.Values encodes alphabetically
-		if got != "/v1/invoices?after=5&limit=10" {
+		if got != "/v1/wallets/wal_1/invoices?after=5&limit=10" {
 			t.Errorf("got %q", got)
 		}
 	})

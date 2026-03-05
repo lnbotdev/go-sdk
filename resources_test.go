@@ -2,7 +2,6 @@ package lnbot
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
@@ -12,12 +11,11 @@ import (
 
 func TestWallets_Create(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
-		"walletId": "wal_abc", "primaryKey": "pk_1", "secondaryKey": "sk_1",
-		"name": "Test", "address": "test@ln.bot", "recoveryPassphrase": "word1 word2",
+		"walletId": "wal_abc", "name": "Test", "address": "test@ln.bot",
 	})
 	c, _ := testServer(t, h)
 
-	creds, err := c.Wallets.Create(context.Background(), &CreateWalletParams{Name: Ptr("Test")})
+	res, err := c.Wallets.Create(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,34 +25,57 @@ func TestWallets_Create(t *testing.T) {
 	if cap.Path != "/v1/wallets" {
 		t.Errorf("Path = %q", cap.Path)
 	}
-	if creds.WalletID != "wal_abc" {
-		t.Errorf("WalletID = %q", creds.WalletID)
+	if res.WalletID != "wal_abc" {
+		t.Errorf("WalletID = %q", res.WalletID)
 	}
-	if creds.PrimaryKey != "pk_1" {
-		t.Errorf("PrimaryKey = %q", creds.PrimaryKey)
-	}
-
-	var body map[string]any
-	json.Unmarshal([]byte(cap.Body), &body)
-	if body["name"] != "Test" {
-		t.Errorf("body name = %v", body["name"])
+	if res.Address != "test@ln.bot" {
+		t.Errorf("Address = %q", res.Address)
 	}
 }
 
-func TestWallets_Current(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{
-		"walletId": "wal_1", "name": "My Wallet", "balance": 1000, "onHold": 50, "available": 950,
+func TestWallets_List(t *testing.T) {
+	h, cap := jsonHandler(200, []map[string]any{
+		{"walletId": "wal_1", "name": "Wallet One"},
+		{"walletId": "wal_2", "name": "Wallet Two"},
 	})
 	c, _ := testServer(t, h)
 
-	w, err := c.Wallets.Current(context.Background())
+	items, err := c.Wallets.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cap.Method != "GET" {
 		t.Errorf("Method = %q, want GET", cap.Method)
 	}
-	if cap.Path != "/v1/wallets/current" {
+	if cap.Path != "/v1/wallets" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len = %d, want 2", len(items))
+	}
+	if items[0].Name != "Wallet One" {
+		t.Errorf("Name = %q", items[0].Name)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Wallet Handle (Get / Update)
+// ---------------------------------------------------------------------------
+
+func TestWallet_Get(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{
+		"walletId": "wal_1", "name": "My Wallet", "balance": 1000, "onHold": 50, "available": 950,
+	})
+	c, _ := testServer(t, h)
+
+	w, err := c.Wallet("wal_1").Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "GET" {
+		t.Errorf("Method = %q, want GET", cap.Method)
+	}
+	if cap.Path != "/v1/wallets/wal_1" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if w.Name != "My Wallet" {
@@ -65,20 +86,20 @@ func TestWallets_Current(t *testing.T) {
 	}
 }
 
-func TestWallets_Update(t *testing.T) {
+func TestWallet_Update(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
 		"walletId": "wal_1", "name": "Renamed", "balance": 0, "onHold": 0, "available": 0,
 	})
 	c, _ := testServer(t, h)
 
-	w, err := c.Wallets.Update(context.Background(), &UpdateWalletParams{Name: "Renamed"})
+	w, err := c.Wallet("wal_1").Update(context.Background(), &UpdateWalletParams{Name: "Renamed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cap.Method != "PATCH" {
 		t.Errorf("Method = %q, want PATCH", cap.Method)
 	}
-	if cap.Path != "/v1/wallets/current" {
+	if cap.Path != "/v1/wallets/wal_1" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if w.Name != "Renamed" {
@@ -87,11 +108,85 @@ func TestWallets_Update(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Keys
+// Wallet Key
+// ---------------------------------------------------------------------------
+
+func TestWalletKey_Create(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{"key": "wk_abc", "hint": "wk_a..."})
+	c, _ := testServer(t, h)
+
+	k, err := c.Wallet("wal_1").Key.Create(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "POST" {
+		t.Errorf("Method = %q", cap.Method)
+	}
+	if cap.Path != "/v1/wallets/wal_1/key" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if k.Key != "wk_abc" {
+		t.Errorf("Key = %q", k.Key)
+	}
+}
+
+func TestWalletKey_Get(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{"hint": "wk_a..."})
+	c, _ := testServer(t, h)
+
+	k, err := c.Wallet("wal_1").Key.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Path != "/v1/wallets/wal_1/key" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if k.Hint != "wk_a..." {
+		t.Errorf("Hint = %q", k.Hint)
+	}
+}
+
+func TestWalletKey_Delete(t *testing.T) {
+	h, cap := jsonHandler(204, nil)
+	c, _ := testServer(t, h)
+
+	err := c.Wallet("wal_1").Key.Delete(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "DELETE" {
+		t.Errorf("Method = %q", cap.Method)
+	}
+	if cap.Path != "/v1/wallets/wal_1/key" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+}
+
+func TestWalletKey_Rotate(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{"key": "wk_new", "hint": "wk_n..."})
+	c, _ := testServer(t, h)
+
+	k, err := c.Wallet("wal_1").Key.Rotate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "POST" {
+		t.Errorf("Method = %q", cap.Method)
+	}
+	if cap.Path != "/v1/wallets/wal_1/key/rotate" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if k.Key != "wk_new" {
+		t.Errorf("Key = %q", k.Key)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Keys (user key rotation)
 // ---------------------------------------------------------------------------
 
 func TestKeys_Rotate(t *testing.T) {
-	h, cap := jsonHandler(200, map[string]any{"key": "pk_new", "name": "primary"})
+	h, cap := jsonHandler(200, map[string]any{"key": "uk_new", "name": "primary"})
 	c, _ := testServer(t, h)
 
 	k, err := c.Keys.Rotate(context.Background(), 0)
@@ -104,7 +199,7 @@ func TestKeys_Rotate(t *testing.T) {
 	if cap.Path != "/v1/keys/0/rotate" {
 		t.Errorf("Path = %q", cap.Path)
 	}
-	if k.Key != "pk_new" {
+	if k.Key != "uk_new" {
 		t.Errorf("Key = %q", k.Key)
 	}
 	if k.Name != "primary" {
@@ -113,7 +208,7 @@ func TestKeys_Rotate(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Invoices
+// Invoices (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestInvoices_Create(t *testing.T) {
@@ -122,7 +217,7 @@ func TestInvoices_Create(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	inv, err := c.Invoices.Create(context.Background(), &CreateInvoiceParams{
+	inv, err := c.Wallet("wal_1").Invoices.Create(context.Background(), &CreateInvoiceParams{
 		Amount: 100, Memo: Ptr("test"),
 	})
 	if err != nil {
@@ -131,7 +226,7 @@ func TestInvoices_Create(t *testing.T) {
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/invoices" {
+	if cap.Path != "/v1/wallets/wal_1/invoices" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if inv.Number != 1 {
@@ -149,7 +244,7 @@ func TestInvoices_List(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	invs, err := c.Invoices.List(context.Background(), &ListInvoicesParams{
+	invs, err := c.Wallet("wal_1").Invoices.List(context.Background(), &ListInvoicesParams{
 		Limit: Ptr(10), After: Ptr(0),
 	})
 	if err != nil {
@@ -158,7 +253,7 @@ func TestInvoices_List(t *testing.T) {
 	if cap.Method != "GET" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/invoices" {
+	if cap.Path != "/v1/wallets/wal_1/invoices" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if cap.Query != "after=0&limit=10" {
@@ -176,7 +271,7 @@ func TestInvoices_List_NilParams(t *testing.T) {
 	h, cap := jsonHandler(200, []map[string]any{})
 	c, _ := testServer(t, h)
 
-	_, err := c.Invoices.List(context.Background(), nil)
+	_, err := c.Wallet("wal_1").Invoices.List(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +286,11 @@ func TestInvoices_Get(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	inv, err := c.Invoices.Get(context.Background(), 42)
+	inv, err := c.Wallet("wal_1").Invoices.Get(context.Background(), 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/invoices/42" {
+	if cap.Path != "/v1/wallets/wal_1/invoices/42" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if inv.Number != 42 {
@@ -209,16 +304,20 @@ func TestInvoices_GetByHash(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	_, err := c.Invoices.GetByHash(context.Background(), "abc123")
+	_, err := c.Wallet("wal_1").Invoices.GetByHash(context.Background(), "abc123")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/invoices/abc123" {
+	if cap.Path != "/v1/wallets/wal_1/invoices/abc123" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 }
 
-func TestInvoices_CreateForWallet(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Public Invoices
+// ---------------------------------------------------------------------------
+
+func TestPublicInvoices_CreateForWallet(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
 		"bolt11": "lnbc1...", "amount": 100,
 	})
@@ -241,7 +340,7 @@ func TestInvoices_CreateForWallet(t *testing.T) {
 	}
 }
 
-func TestInvoices_CreateForAddress(t *testing.T) {
+func TestPublicInvoices_CreateForAddress(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
 		"bolt11": "lnbc1...", "amount": 200,
 	})
@@ -262,7 +361,7 @@ func TestInvoices_CreateForAddress(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Payments
+// Payments (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestPayments_Create(t *testing.T) {
@@ -272,7 +371,7 @@ func TestPayments_Create(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	p, err := c.Payments.Create(context.Background(), &CreatePaymentParams{
+	p, err := c.Wallet("wal_1").Payments.Create(context.Background(), &CreatePaymentParams{
 		Target: "user@ln.bot", Amount: Ptr(int64(50)),
 	})
 	if err != nil {
@@ -281,7 +380,7 @@ func TestPayments_Create(t *testing.T) {
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/payments" {
+	if cap.Path != "/v1/wallets/wal_1/payments" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if p.Number != 1 {
@@ -298,11 +397,11 @@ func TestPayments_List(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	ps, err := c.Payments.List(context.Background(), &ListPaymentsParams{Limit: Ptr(5)})
+	ps, err := c.Wallet("wal_1").Payments.List(context.Background(), &ListPaymentsParams{Limit: Ptr(5)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/payments" {
+	if cap.Path != "/v1/wallets/wal_1/payments" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if cap.Query != "limit=5" {
@@ -319,11 +418,11 @@ func TestPayments_Get(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	p, err := c.Payments.Get(context.Background(), 7)
+	p, err := c.Wallet("wal_1").Payments.Get(context.Background(), 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/payments/7" {
+	if cap.Path != "/v1/wallets/wal_1/payments/7" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if p.Number != 7 {
@@ -337,17 +436,38 @@ func TestPayments_GetByHash(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	_, err := c.Payments.GetByHash(context.Background(), "hash456")
+	_, err := c.Wallet("wal_1").Payments.GetByHash(context.Background(), "hash456")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/payments/hash456" {
+	if cap.Path != "/v1/wallets/wal_1/payments/hash456" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 }
 
+func TestPayments_Resolve(t *testing.T) {
+	h, cap := jsonHandler(200, map[string]any{
+		"type": "lnaddress", "min": 1, "max": 1000000,
+	})
+	c, _ := testServer(t, h)
+
+	res, err := c.Wallet("wal_1").Payments.Resolve(context.Background(), "user@ln.bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cap.Method != "GET" {
+		t.Errorf("Method = %q", cap.Method)
+	}
+	if cap.Path != "/v1/wallets/wal_1/payments/resolve" {
+		t.Errorf("Path = %q", cap.Path)
+	}
+	if res.Type != "lnaddress" {
+		t.Errorf("Type = %q", res.Type)
+	}
+}
+
 // ---------------------------------------------------------------------------
-// Addresses
+// Addresses (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestAddresses_Create(t *testing.T) {
@@ -356,14 +476,14 @@ func TestAddresses_Create(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	a, err := c.Addresses.Create(context.Background(), &CreateAddressParams{Address: Ptr("user@ln.bot")})
+	a, err := c.Wallet("wal_1").Addresses.Create(context.Background(), &CreateAddressParams{Address: Ptr("user@ln.bot")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/addresses" {
+	if cap.Path != "/v1/wallets/wal_1/addresses" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if a.Address != "user@ln.bot" {
@@ -378,11 +498,11 @@ func TestAddresses_List(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	addrs, err := c.Addresses.List(context.Background())
+	addrs, err := c.Wallet("wal_1").Addresses.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/addresses" {
+	if cap.Path != "/v1/wallets/wal_1/addresses" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if len(addrs) != 2 {
@@ -397,14 +517,14 @@ func TestAddresses_Delete(t *testing.T) {
 	h, cap := jsonHandler(200, nil)
 	c, _ := testServer(t, h)
 
-	err := c.Addresses.Delete(context.Background(), "user@ln.bot")
+	err := c.Wallet("wal_1").Addresses.Delete(context.Background(), "user@ln.bot")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cap.Method != "DELETE" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/addresses/user@ln.bot" {
+	if cap.Path != "/v1/wallets/wal_1/addresses/user@ln.bot" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 }
@@ -415,8 +535,8 @@ func TestAddresses_Transfer(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	tr, err := c.Addresses.Transfer(context.Background(), "user@ln.bot", &TransferAddressParams{
-		TargetWalletKey: "pk_target",
+	tr, err := c.Wallet("wal_1").Addresses.Transfer(context.Background(), "user@ln.bot", &TransferAddressParams{
+		TargetWalletKey: "wk_target",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +544,7 @@ func TestAddresses_Transfer(t *testing.T) {
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/addresses/user@ln.bot/transfer" {
+	if cap.Path != "/v1/wallets/wal_1/addresses/user@ln.bot/transfer" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if tr.TransferredTo != "wal_target" {
@@ -433,7 +553,7 @@ func TestAddresses_Transfer(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Transactions
+// Transactions (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestTransactions_List(t *testing.T) {
@@ -442,13 +562,13 @@ func TestTransactions_List(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	txs, err := c.Transactions.List(context.Background(), &ListTransactionsParams{
+	txs, err := c.Wallet("wal_1").Transactions.List(context.Background(), &ListTransactionsParams{
 		Limit: Ptr(20), After: Ptr(0),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/transactions" {
+	if cap.Path != "/v1/wallets/wal_1/transactions" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if cap.Query != "after=0&limit=20" {
@@ -466,7 +586,7 @@ func TestTransactions_List_NilParams(t *testing.T) {
 	h, cap := jsonHandler(200, []map[string]any{})
 	c, _ := testServer(t, h)
 
-	_, err := c.Transactions.List(context.Background(), nil)
+	_, err := c.Wallet("wal_1").Transactions.List(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +596,7 @@ func TestTransactions_List_NilParams(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Webhooks
+// Webhooks (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestWebhooks_Create(t *testing.T) {
@@ -485,7 +605,7 @@ func TestWebhooks_Create(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	wh, err := c.Webhooks.Create(context.Background(), &CreateWebhookParams{
+	wh, err := c.Wallet("wal_1").Webhooks.Create(context.Background(), &CreateWebhookParams{
 		URL: "https://example.com/hook",
 	})
 	if err != nil {
@@ -494,7 +614,7 @@ func TestWebhooks_Create(t *testing.T) {
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/webhooks" {
+	if cap.Path != "/v1/wallets/wal_1/webhooks" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if wh.Secret != "sec_abc" {
@@ -508,11 +628,11 @@ func TestWebhooks_List(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	whs, err := c.Webhooks.List(context.Background())
+	whs, err := c.Wallet("wal_1").Webhooks.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/webhooks" {
+	if cap.Path != "/v1/wallets/wal_1/webhooks" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if len(whs) != 1 {
@@ -527,14 +647,14 @@ func TestWebhooks_Delete(t *testing.T) {
 	h, cap := jsonHandler(200, nil)
 	c, _ := testServer(t, h)
 
-	err := c.Webhooks.Delete(context.Background(), "wh_1")
+	err := c.Wallet("wal_1").Webhooks.Delete(context.Background(), "wh_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cap.Method != "DELETE" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/webhooks/wh_1" {
+	if cap.Path != "/v1/wallets/wal_1/webhooks/wh_1" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 }
@@ -605,7 +725,7 @@ func TestBackup_PasskeyComplete(t *testing.T) {
 
 func TestRestore_Recovery(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
-		"walletId": "wal_1", "name": "Restored", "primaryKey": "pk_1", "secondaryKey": "sk_1",
+		"walletId": "wal_1", "name": "Restored", "primaryKey": "uk_1", "secondaryKey": "uk_2",
 	})
 	c, _ := testServer(t, h)
 
@@ -646,7 +766,7 @@ func TestRestore_PasskeyBegin(t *testing.T) {
 
 func TestRestore_PasskeyComplete(t *testing.T) {
 	h, cap := jsonHandler(200, map[string]any{
-		"walletId": "wal_1", "name": "Restored", "primaryKey": "pk_1", "secondaryKey": "sk_1",
+		"walletId": "wal_1", "name": "Restored", "primaryKey": "uk_1", "secondaryKey": "uk_2",
 	})
 	c, _ := testServer(t, h)
 
@@ -663,13 +783,13 @@ func TestRestore_PasskeyComplete(t *testing.T) {
 	if cap.Path != "/v1/restore/passkey/complete" {
 		t.Errorf("Path = %q", cap.Path)
 	}
-	if w.PrimaryKey != "pk_1" {
+	if w.PrimaryKey != "uk_1" {
 		t.Errorf("PrimaryKey = %q", w.PrimaryKey)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// L402
+// L402 (wallet-scoped)
 // ---------------------------------------------------------------------------
 
 func TestL402_CreateChallenge(t *testing.T) {
@@ -679,7 +799,7 @@ func TestL402_CreateChallenge(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	ch, err := c.L402.CreateChallenge(context.Background(), &CreateL402ChallengeParams{
+	ch, err := c.Wallet("wal_1").L402.CreateChallenge(context.Background(), &CreateL402ChallengeParams{
 		Amount:  100,
 		Caveats: []string{"service=api"},
 	})
@@ -689,7 +809,7 @@ func TestL402_CreateChallenge(t *testing.T) {
 	if cap.Method != "POST" {
 		t.Errorf("Method = %q", cap.Method)
 	}
-	if cap.Path != "/v1/l402/challenges" {
+	if cap.Path != "/v1/wallets/wal_1/l402/challenges" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if ch.Macaroon != "mac_abc" {
@@ -706,13 +826,13 @@ func TestL402_Verify(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	resp, err := c.L402.Verify(context.Background(), &VerifyL402Params{
+	resp, err := c.Wallet("wal_1").L402.Verify(context.Background(), &VerifyL402Params{
 		Authorization: "L402 token:preimage",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/l402/verify" {
+	if cap.Path != "/v1/wallets/wal_1/l402/verify" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if !resp.Valid {
@@ -727,14 +847,14 @@ func TestL402_Pay(t *testing.T) {
 	})
 	c, _ := testServer(t, h)
 
-	resp, err := c.L402.Pay(context.Background(), &PayL402Params{
+	resp, err := c.Wallet("wal_1").L402.Pay(context.Background(), &PayL402Params{
 		WwwAuthenticate: "L402 mac:inv",
 		MaxFee:          Ptr(int64(10)),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cap.Path != "/v1/l402/pay" {
+	if cap.Path != "/v1/wallets/wal_1/l402/pay" {
 		t.Errorf("Path = %q", cap.Path)
 	}
 	if resp.Status != "settled" {

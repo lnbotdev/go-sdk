@@ -9,6 +9,23 @@ import (
 func Ptr[T any](v T) *T { return &v }
 
 // ---------------------------------------------------------------------------
+// Account
+// ---------------------------------------------------------------------------
+
+// RegisterResponse is returned when a new account is registered.
+type RegisterResponse struct {
+	UserID             string `json:"userId"`
+	PrimaryKey         string `json:"primaryKey"`
+	SecondaryKey       string `json:"secondaryKey"`
+	RecoveryPassphrase string `json:"recoveryPassphrase"`
+}
+
+// MeResponse is returned by the identity check endpoint.
+type MeResponse struct {
+	WalletID string `json:"walletId"`
+}
+
+// ---------------------------------------------------------------------------
 // Wallet
 // ---------------------------------------------------------------------------
 
@@ -21,25 +38,40 @@ type Wallet struct {
 	Available int64  `json:"available"`
 }
 
-// CreateWalletParams are the parameters for creating a new wallet.
-type CreateWalletParams struct {
-	Name *string `json:"name,omitempty"`
+// CreateWalletResponse is returned when a new wallet is created.
+type CreateWalletResponse struct {
+	WalletID string `json:"walletId"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
 }
 
-// WalletCredentials is returned when a new wallet is created.
-// It contains the API keys and recovery passphrase.
-type WalletCredentials struct {
-	WalletID           string `json:"walletId"`
-	PrimaryKey         string `json:"primaryKey"`
-	SecondaryKey       string `json:"secondaryKey"`
-	Name               string `json:"name"`
-	Address            string `json:"address"`
-	RecoveryPassphrase string `json:"recoveryPassphrase"`
+// WalletListItem represents a wallet in the list response.
+type WalletListItem struct {
+	WalletID  string     `json:"walletId"`
+	Name      string     `json:"name"`
+	CreatedAt *time.Time `json:"createdAt"`
 }
 
 // UpdateWalletParams are the parameters for updating a wallet.
 type UpdateWalletParams struct {
 	Name string `json:"name"`
+}
+
+// ---------------------------------------------------------------------------
+// Wallet Key
+// ---------------------------------------------------------------------------
+
+// WalletKeyResponse is returned when a wallet key is created or rotated.
+type WalletKeyResponse struct {
+	Key  string `json:"key"`
+	Hint string `json:"hint"`
+}
+
+// WalletKeyInfoResponse is returned when getting wallet key info.
+type WalletKeyInfoResponse struct {
+	Hint       string     `json:"hint"`
+	CreatedAt  *time.Time `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +188,15 @@ type ListPaymentsParams struct {
 type PaymentEvent struct {
 	Event string
 	Data  Payment
+}
+
+// ResolveTargetResponse is returned when resolving a payment target.
+type ResolveTargetResponse struct {
+	Type   string `json:"type"`
+	Min    *int64 `json:"min"`
+	Max    *int64 `json:"max"`
+	Fixed  *bool  `json:"fixed"`
+	Amount *int64 `json:"amount"`
 }
 
 // WalletEvent represents a real-time event from the wallet event stream.

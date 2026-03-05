@@ -18,7 +18,7 @@ const (
 	defaultTimeout = 30 * time.Second
 
 	// Version is the SDK version sent in the User-Agent header.
-	Version = "0.5.0"
+	Version = "1.0.0"
 )
 
 // Option configures the Client.
@@ -40,21 +40,16 @@ type Client struct {
 	baseURL string
 	http    *http.Client
 
-	Wallets      *WalletsService
-	Keys         *KeysService
-	Invoices     *InvoicesService
-	Payments     *PaymentsService
-	Addresses    *AddressesService
-	Transactions *TransactionsService
-	Webhooks     *WebhooksService
-	Events       *EventsService
-	Backup       *BackupService
-	Restore      *RestoreService
-	L402         *L402Service
+	// Top-level (account) services
+	Wallets  *WalletsService
+	Keys     *KeysService
+	Invoices *PublicInvoicesService
+	Backup   *BackupService
+	Restore  *RestoreService
 }
 
 // New creates a new LnBot client.
-// Pass an empty string for apiKey if not needed (wallet creation, restore).
+// Pass an empty string for apiKey if not needed (registration, public invoices, restore).
 func New(apiKey string, opts ...Option) *Client {
 	c := &Client{
 		apiKey:  apiKey,
@@ -66,17 +61,84 @@ func New(apiKey string, opts ...Option) *Client {
 	}
 	c.Wallets = &WalletsService{c: c}
 	c.Keys = &KeysService{c: c}
-	c.Invoices = &InvoicesService{c: c}
-	c.Payments = &PaymentsService{c: c}
-	c.Addresses = &AddressesService{c: c}
-	c.Transactions = &TransactionsService{c: c}
-	c.Webhooks = &WebhooksService{c: c}
-	c.Events = &EventsService{c: c}
+	c.Invoices = &PublicInvoicesService{c: c}
 	c.Backup = &BackupService{c: c}
 	c.Restore = &RestoreService{c: c}
-	c.L402 = &L402Service{c: c}
 	return c
 }
+
+// Register creates a new account. No authentication required.
+func (c *Client) Register(ctx context.Context) (*RegisterResponse, error) {
+	var v RegisterResponse
+	if err := c.post(ctx, "/v1/register", nil, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// Me returns the authenticated identity.
+func (c *Client) Me(ctx context.Context) (*MeResponse, error) {
+	var v MeResponse
+	if err := c.get(ctx, "/v1/me", &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// Wallet returns a wallet handle scoped to the given wallet ID.
+// All sub-resources (invoices, payments, addresses, etc.) are accessed through this handle.
+func (c *Client) Wallet(id string) *WalletHandle {
+	prefix := fmt.Sprintf("/v1/wallets/%s", url.PathEscape(id))
+	return &WalletHandle{
+		c:            c,
+		WalletID:     id,
+		prefix:       prefix,
+		Key:          &WalletKeyService{c: c, prefix: prefix},
+		Invoices:     &InvoicesService{c: c, prefix: prefix},
+		Payments:     &PaymentsService{c: c, prefix: prefix},
+		Addresses:    &AddressesService{c: c, prefix: prefix},
+		Transactions: &TransactionsService{c: c, prefix: prefix},
+		Webhooks:     &WebhooksService{c: c, prefix: prefix},
+		Events:       &EventsService{c: c, prefix: prefix},
+		L402:         &L402Service{c: c, prefix: prefix},
+	}
+}
+
+// WalletHandle provides access to wallet-scoped resources.
+type WalletHandle struct {
+	c        *Client
+	WalletID string
+	prefix   string
+
+	Key          *WalletKeyService
+	Invoices     *InvoicesService
+	Payments     *PaymentsService
+	Addresses    *AddressesService
+	Transactions *TransactionsService
+	Webhooks     *WebhooksService
+	Events       *EventsService
+	L402         *L402Service
+}
+
+// Get returns the wallet details.
+func (w *WalletHandle) Get(ctx context.Context) (*Wallet, error) {
+	var v Wallet
+	if err := w.c.get(ctx, w.prefix, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// Update modifies the wallet's settings.
+func (w *WalletHandle) Update(ctx context.Context, params *UpdateWalletParams) (*Wallet, error) {
+	var v Wallet
+	if err := w.c.patch(ctx, w.prefix, params, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// ── HTTP helpers ────────────────────────────────────────
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body any) (*http.Request, error) {
 	u := c.baseURL + path

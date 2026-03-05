@@ -9,8 +9,11 @@ import (
 	"strings"
 )
 
-// EventsService handles the wallet event stream.
-type EventsService struct{ c *Client }
+// EventsService handles the wallet-scoped event stream.
+type EventsService struct {
+	c      *Client
+	prefix string
+}
 
 // Stream opens an SSE stream of all wallet events.
 // Events include invoice.created, invoice.settled, payment.created,
@@ -24,7 +27,7 @@ func (s *EventsService) Stream(ctx context.Context) (<-chan WalletEvent, <-chan 
 		defer close(events)
 		defer close(errs)
 
-		path := s.c.baseURL + "/v1/events"
+		path := s.c.baseURL + s.prefix + "/events"
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, path, nil)
 		if err != nil {
 			errs <- err
