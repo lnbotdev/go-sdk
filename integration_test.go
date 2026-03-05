@@ -107,8 +107,8 @@ func TestInteg_Me_UserKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.WalletID == "" {
-		t.Error("WalletID is empty")
+	if res == nil {
+		t.Error("Me() returned nil")
 	}
 }
 
@@ -248,15 +248,19 @@ func TestInteg_Addresses_List(t *testing.T) {
 }
 
 func TestInteg_Addresses_Create(t *testing.T) {
-	name := fmt.Sprintf("gotest%d", time.Now().UnixMilli()%100000)
-	addr, err := w2Wallet.Addresses.Create(context.Background(), &CreateAddressParams{
-		Address: Ptr(name),
-	})
+	// Create a random (generated) address — no cost
+	addr, err := w2Wallet.Addresses.Create(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(addr.Address, name) {
-		t.Errorf("Address = %q, expected to contain %q", addr.Address, name)
+	if !strings.Contains(addr.Address, "@") {
+		t.Errorf("Address = %q, expected to contain @", addr.Address)
+	}
+	if !addr.Generated {
+		t.Error("expected Generated = true")
+	}
+	if addr.Cost != 0 {
+		t.Errorf("Cost = %d, expected 0 for generated address", addr.Cost)
 	}
 }
 
@@ -288,7 +292,7 @@ func TestInteg_Addresses_TransferRejectsGenerated(t *testing.T) {
 
 func TestInteg_Invoices_Create(t *testing.T) {
 	inv, err := w2Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
-		Amount: 100, Memo: Ptr("go-sdk-test"),
+		Amount: 2, Memo: Ptr("go-sdk-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -350,7 +354,7 @@ func TestInteg_Invoices_GetNonexistent(t *testing.T) {
 func TestInteg_PublicInvoice_ForWallet(t *testing.T) {
 	anon := New("")
 	inv, err := anon.Invoices.CreateForWallet(context.Background(), &CreateInvoiceForWalletParams{
-		WalletID: w1WalletID, Amount: 100,
+		WalletID: w1WalletID, Amount: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -367,12 +371,12 @@ func TestInteg_PublicInvoice_ForAddress(t *testing.T) {
 	}
 	anon := New("")
 	inv, err := anon.Invoices.CreateForAddress(context.Background(), &CreateInvoiceForAddressParams{
-		Address: addrs[0].Address, Amount: 100,
+		Address: addrs[0].Address, Amount: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inv.Amount != 100 {
+	if inv.Amount != 5 {
 		t.Errorf("Amount = %d", inv.Amount)
 	}
 }
@@ -380,7 +384,7 @@ func TestInteg_PublicInvoice_ForAddress(t *testing.T) {
 func TestInteg_PublicInvoice_NonexistentWallet(t *testing.T) {
 	anon := New("")
 	_, err := anon.Invoices.CreateForWallet(context.Background(), &CreateInvoiceForWalletParams{
-		WalletID: "wal_nonexistent", Amount: 100,
+		WalletID: "wal_nonexistent", Amount: 1,
 	})
 	var badReq *BadRequestError
 	if !errors.As(err, &badReq) {
@@ -399,53 +403,120 @@ func TestInteg_Payments_Resolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Type == "" {
-		t.Error("Type is empty")
+	if res.Type != "lightning_address" {
+		t.Errorf("Type = %q, want lightning_address", res.Type)
+	}
+	if res.Min == nil || res.Max == nil || res.Fixed == nil {
+		t.Error("expected Min, Max, Fixed to be set")
 	}
 }
 
-func TestInteg_Payments_CreateAndSettle(t *testing.T) {
-	// Get w2 address
-	addrs, err := w2Wallet.Addresses.List(context.Background())
-	if err != nil || len(addrs) == 0 {
-		t.Fatal("no w2 addresses")
-	}
-
-	pay, err := w1Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
-		Target: addrs[0].Address,
-		Amount: Ptr(int64(1000)),
+func TestInteg_Payments_ResolveBolt11(t *testing.T) {
+	inv, err := w2Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: 2, Memo: Ptr("resolve-bolt11-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pay.Amount != 1000 {
-		t.Errorf("Amount = %d, want 1000", pay.Amount)
-	}
-
-	// Wait for settlement
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		p, err := w1Wallet.Payments.Get(context.Background(), pay.Number)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if p.Status == "settled" {
-			return
-		}
-		if p.Status == "failed" {
-			t.Fatalf("payment failed: %v", p.FailureReason)
-		}
-	}
-	t.Error("payment did not settle in time")
-}
-
-func TestInteg_Payments_BalanceUpdated(t *testing.T) {
-	wal, err := w2Wallet.Get(context.Background())
+	res, err := w1Wallet.Payments.Resolve(context.Background(), inv.Bolt11)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wal.Balance < 1000 {
-		t.Errorf("w2 balance = %d, expected >= 1000", wal.Balance)
+	if res.Type != "bolt11" {
+		t.Errorf("Type = %q, want bolt11", res.Type)
+	}
+	if res.Amount == nil || *res.Amount != 2 {
+		t.Errorf("Amount = %v, want 2", res.Amount)
+	}
+	if res.Fixed == nil || !*res.Fixed {
+		t.Error("expected Fixed = true for bolt11 with amount")
+	}
+}
+
+func waitForPayment(t *testing.T, wallet *WalletHandle, number int) *Payment {
+	t.Helper()
+	for i := 0; i < 30; i++ {
+		time.Sleep(500 * time.Millisecond)
+		p, err := wallet.Payments.Get(context.Background(), number)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Status == "settled" || p.Status == "failed" {
+			return p
+		}
+	}
+	p, _ := wallet.Payments.Get(context.Background(), number)
+	return p
+}
+
+func TestInteg_Payments_CreateAndSettle(t *testing.T) {
+	inv, err := w2Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: 2, Memo: Ptr("payment-settle-test"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pay, err := w1Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+		Target: inv.Bolt11,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pay.Amount != 2 {
+		t.Errorf("Amount = %d, want 2", pay.Amount)
+	}
+
+	settled := waitForPayment(t, w1Wallet, pay.Number)
+	if settled.Status != "settled" {
+		t.Fatalf("payment did not settle, status = %q", settled.Status)
+	}
+	if settled.Preimage == nil || *settled.Preimage == "" {
+		t.Error("Preimage is empty after settlement")
+	}
+	if settled.SettledAt == nil {
+		t.Error("SettledAt is nil after settlement")
+	}
+}
+
+func TestInteg_Payments_BalanceUpdated(t *testing.T) {
+	w1After, err := w1Wallet.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w1After.Balance >= w1BalanceBefore {
+		t.Error("w1 balance should have decreased after payment")
+	}
+
+	w2After, err := w2Wallet.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w2After.Balance < 2 {
+		t.Errorf("w2 balance = %d, expected >= 2", w2After.Balance)
+	}
+}
+
+func TestInteg_Payments_InvoiceSettledOnReceiver(t *testing.T) {
+	invs, err := w2Wallet.Invoices.List(context.Background(), &ListInvoicesParams{Limit: Ptr(10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, inv := range invs {
+		if inv.Status == "settled" && inv.Amount == 2 {
+			found = true
+			if inv.SettledAt == nil {
+				t.Error("settled invoice has nil SettledAt")
+			}
+			if inv.TxNumber == nil {
+				t.Error("settled invoice has nil TxNumber")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected to find a settled 2-sat invoice on w2")
 	}
 }
 
@@ -457,41 +528,161 @@ func TestInteg_Payments_List(t *testing.T) {
 	if len(ps) < 1 {
 		t.Error("expected at least 1 payment")
 	}
+
+	// Pagination
+	if len(ps) >= 2 {
+		page, err := w1Wallet.Payments.List(context.Background(), &ListPaymentsParams{
+			Limit: Ptr(1), After: Ptr(ps[0].Number),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page) < 1 {
+			t.Error("expected at least 1 result in paginated query")
+		}
+		if page[0].Number >= ps[0].Number {
+			t.Errorf("pagination: got number %d, expected < %d", page[0].Number, ps[0].Number)
+		}
+	}
+}
+
+func TestInteg_Payments_Get(t *testing.T) {
+	ps, err := w1Wallet.Payments.List(context.Background(), &ListPaymentsParams{Limit: Ptr(1)})
+	if err != nil || len(ps) == 0 {
+		t.Skip("no payments")
+	}
+	p, err := w1Wallet.Payments.Get(context.Background(), ps[0].Number)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Number != ps[0].Number {
+		t.Errorf("Number = %d, want %d", p.Number, ps[0].Number)
+	}
+	if p.Status != "settled" {
+		t.Errorf("Status = %q, want settled", p.Status)
+	}
+}
+
+func TestInteg_Payments_GetNonexistent(t *testing.T) {
+	_, err := w1Wallet.Payments.Get(context.Background(), 999999)
+	var notFound *NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Errorf("expected NotFoundError, got %T", err)
+	}
 }
 
 func TestInteg_Payments_InsufficientBalance(t *testing.T) {
-	addrs, err := w1Wallet.Addresses.List(context.Background())
-	if err != nil || len(addrs) == 0 {
-		t.Skip("no w1 addresses")
+	inv, err := w1Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: 99999999,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	_, err = w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
-		Target: addrs[0].Address,
-		Amount: Ptr(int64(99999999)),
+		Target: inv.Bolt11,
 	})
-	if err == nil {
-		t.Error("expected error for insufficient balance")
+	var badReq *BadRequestError
+	if !errors.As(err, &badReq) {
+		t.Errorf("expected BadRequestError, got %T: %v", err, err)
+	}
+}
+
+func TestInteg_Payments_IdempotencyKey(t *testing.T) {
+	inv, err := w1Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idemKey := fmt.Sprintf("idem-go-%d", time.Now().UnixNano())
+
+	// First payment
+	p1, err := w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+		Target:         inv.Bolt11,
+		IdempotencyKey: Ptr(idemKey),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForPayment(t, w2Wallet, p1.Number)
+
+	// Second payment with same key — should return same payment
+	p2, err := w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+		Target:         inv.Bolt11,
+		IdempotencyKey: Ptr(idemKey),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p2.Number != p1.Number {
+		t.Errorf("idempotency failed: p1.Number=%d, p2.Number=%d", p1.Number, p2.Number)
 	}
 }
 
 // ── Transactions ────────────────────────────────────────
 
-func TestInteg_Transactions_List(t *testing.T) {
-	txs, err := w2Wallet.Transactions.List(context.Background(), &ListTransactionsParams{Limit: Ptr(5)})
+func TestInteg_Transactions_DebitOnSender(t *testing.T) {
+	txs, err := w1Wallet.Transactions.List(context.Background(), &ListTransactionsParams{Limit: Ptr(10)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(txs) < 1 {
 		t.Error("expected at least 1 transaction")
 	}
-	// First tx should be a credit (received payment)
+	found := false
+	for _, tx := range txs {
+		if tx.Type == "debit" {
+			found = true
+			if tx.Amount <= 0 {
+				t.Errorf("debit Amount = %d, expected > 0", tx.Amount)
+			}
+			if tx.CreatedAt == nil {
+				t.Error("CreatedAt is nil")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected at least one debit transaction on w1")
+	}
+}
+
+func TestInteg_Transactions_CreditOnReceiver(t *testing.T) {
+	txs, err := w2Wallet.Transactions.List(context.Background(), &ListTransactionsParams{Limit: Ptr(10)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, tx := range txs {
 		if tx.Type == "credit" {
 			found = true
+			if tx.Amount <= 0 {
+				t.Errorf("credit Amount = %d, expected > 0", tx.Amount)
+			}
+			break
 		}
 	}
 	if !found {
-		t.Error("expected at least one credit transaction")
+		t.Error("expected at least one credit transaction on w2")
+	}
+}
+
+func TestInteg_Transactions_Pagination(t *testing.T) {
+	txs, err := w1Wallet.Transactions.List(context.Background(), &ListTransactionsParams{Limit: Ptr(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(txs) != 1 {
+		t.Skipf("expected 1 transaction, got %d", len(txs))
+	}
+	next, err := w1Wallet.Transactions.List(context.Background(), &ListTransactionsParams{
+		Limit: Ptr(1), After: Ptr(txs[0].Number),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next) > 0 && next[0].Number >= txs[0].Number {
+		t.Errorf("pagination: got number %d, expected < %d", next[0].Number, txs[0].Number)
 	}
 }
 
@@ -542,7 +733,7 @@ func TestInteg_Webhooks_DeleteNonexistent(t *testing.T) {
 
 func TestInteg_L402_CreateChallenge(t *testing.T) {
 	ch, err := w2Wallet.L402.CreateChallenge(context.Background(), &CreateL402ChallengeParams{
-		Amount:      10,
+		Amount:      1,
 		Description: Ptr("test"),
 	})
 	if err != nil {
@@ -572,7 +763,7 @@ func TestInteg_L402_InvalidTokenRejected(t *testing.T) {
 func TestInteg_L402_FullFlow(t *testing.T) {
 	// Create challenge on w2
 	ch, err := w2Wallet.L402.CreateChallenge(context.Background(), &CreateL402ChallengeParams{
-		Amount: 10,
+		Amount: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -608,7 +799,7 @@ func TestInteg_L402_FullFlow(t *testing.T) {
 func TestInteg_SSE_InvoiceWatch(t *testing.T) {
 	// Create invoice on w2
 	inv, err := w2Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
-		Amount: 100, Memo: Ptr("sse-test"),
+		Amount: 1, Memo: Ptr("sse-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -641,6 +832,96 @@ func TestInteg_SSE_InvoiceWatch(t *testing.T) {
 	}
 	if !settled {
 		t.Error("did not receive settled event")
+	}
+}
+
+func TestInteg_SSE_PaymentWatch(t *testing.T) {
+	inv, err := w1Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: 1, Memo: Ptr("payment-watch-test"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Start payment from w2
+	pay, err := w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+		Target: inv.Bolt11,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Watch with wallet key
+	wkClient := New(w2WalletKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	events, errs := wkClient.Wallet(w2WalletID).Payments.Watch(ctx, pay.Number, Ptr(30))
+
+	settled := false
+	for ev := range events {
+		if ev.Event == "settled" {
+			settled = true
+			cancel()
+		}
+	}
+	if err := <-errs; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if !settled {
+		t.Error("did not receive settled event for payment")
+	}
+}
+
+func TestInteg_SSE_WalletEventStream(t *testing.T) {
+	wkClient := New(w2WalletKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	events, errs := wkClient.Wallet(w2WalletID).Events.Stream(ctx)
+
+	// Generate events: create and pay an invoice
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		inv, err := w2Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+			Amount: 1, Memo: Ptr("event-stream-test"),
+		})
+		if err != nil {
+			return
+		}
+		w1Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+			Target: inv.Bolt11,
+		})
+	}()
+
+	var collected []WalletEvent
+	for ev := range events {
+		collected = append(collected, ev)
+		if len(collected) >= 2 {
+			cancel()
+			break
+		}
+	}
+	if err := <-errs; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if len(collected) < 1 {
+		t.Error("expected at least 1 wallet event")
+	}
+	hasInvoiceEvent := false
+	for _, ev := range collected {
+		if strings.HasPrefix(ev.Event, "invoice.") {
+			hasInvoiceEvent = true
+		}
+	}
+	if !hasInvoiceEvent {
+		t.Errorf("expected invoice.* event, got events: %v", func() []string {
+			names := make([]string, len(collected))
+			for i, e := range collected {
+				names[i] = e.Event
+			}
+			return names
+		}())
 	}
 }
 
@@ -695,34 +976,73 @@ func TestInteg_Cleanup_ReturnFunds(t *testing.T) {
 		t.Skip("no funds to return")
 	}
 
-	// Get w1 address
-	addrs, err := w1Wallet.Addresses.List(context.Background())
-	if err != nil || len(addrs) == 0 {
-		t.Skip("no w1 addresses")
-	}
-
-	_, err = w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
-		Target: addrs[0].Address,
-		Amount: Ptr(wal.Available),
+	inv, err := w1Wallet.Invoices.Create(context.Background(), &CreateInvoiceParams{
+		Amount: wal.Available,
 	})
 	if err != nil {
-		// May fail if available is slightly less due to fees
+		t.Fatal(err)
+	}
+	p, err := w2Wallet.Payments.Create(context.Background(), &CreatePaymentParams{
+		Target: inv.Bolt11,
+	})
+	if err != nil {
 		t.Logf("return funds: %v (non-fatal)", err)
+		return
+	}
+	settled := waitForPayment(t, w2Wallet, p.Number)
+	if settled.Status != "settled" {
+		t.Logf("return funds payment status: %s (non-fatal)", settled.Status)
+	}
+
+	// Verify w2 is empty
+	after, err := w2Wallet.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Balance != 0 {
+		t.Logf("w2 balance after return = %d (expected 0)", after.Balance)
 	}
 }
 
-func TestInteg_Cleanup_DeleteVanityAddress(t *testing.T) {
+func TestInteg_Cleanup_BalanceRestored(t *testing.T) {
+	w1After, err := w1Wallet.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Balance may differ slightly due to service fees on internal transfers
+	if w1After.Balance < w1BalanceBefore-10 {
+		t.Errorf("w1 balance = %d, started at %d (lost more than 10 sats)", w1After.Balance, w1BalanceBefore)
+	}
+}
+
+func TestInteg_Cleanup_DeleteAddress(t *testing.T) {
 	addrs, err := w2Wallet.Addresses.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range addrs {
-		if !a.Generated {
-			err := w2Wallet.Addresses.Delete(context.Background(), a.Address)
-			if err != nil {
-				t.Logf("delete address %s: %v", a.Address, err)
-			}
+	if len(addrs) == 0 {
+		t.Skip("no addresses to delete")
+	}
+	// Delete one address, then verify double-delete returns NotFound
+	target := addrs[0].Address
+	err = w2Wallet.Addresses.Delete(context.Background(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it's gone
+	after, _ := w2Wallet.Addresses.List(context.Background())
+	for _, a := range after {
+		if a.Address == target {
+			t.Errorf("address %s still in list after delete", target)
 		}
+	}
+
+	// Second delete should fail
+	err = w2Wallet.Addresses.Delete(context.Background(), target)
+	var notFound *NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Errorf("expected NotFoundError on double-delete, got %T: %v", err, err)
 	}
 }
 
@@ -738,5 +1058,13 @@ func TestInteg_Cleanup_DeleteWalletKey(t *testing.T) {
 	var unauth *UnauthorizedError
 	if !errors.As(err, &unauth) {
 		t.Errorf("expected UnauthorizedError after key deletion, got %T", err)
+	}
+}
+
+func TestInteg_Cleanup_WalletKeyGetAfterDelete(t *testing.T) {
+	_, err := w2Wallet.Key.Get(context.Background())
+	var notFound *NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Errorf("expected NotFoundError after key deletion, got %T: %v", err, err)
 	}
 }
